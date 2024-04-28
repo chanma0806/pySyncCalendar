@@ -10,7 +10,7 @@ python = "^3.10"
 google-api-python-client = "^2.127.0"
 google-auth-oauthlib = "^1.2.0"
 python-dotenv = "^1.0.1"
-pywin32 = "^301"
+pywin32 = "306"
 
 [build-system]
 requires = ["poetry-core"]

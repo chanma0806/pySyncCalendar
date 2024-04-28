@@ -1,3 +1,7 @@
 venv
 .python-version
-./token.pickle
+token.pickle
+poetry.lock
+client_secret_*
+.env
+.vscode

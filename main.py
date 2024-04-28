@@ -1,8 +1,8 @@
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-import google-api-python-client.discovery
+import googleapiclient.discovery
 from datetime import datetime, timedelta
-import pywin32.client
+import win32com.client
 import pickle
 import os
 from os.path import join, dirname
@@ -17,9 +17,10 @@ load_dotenv(dotenv_path)
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 CALENDAR_ID = 'primary' # googleアカウントのメインカレンダーID
-KEY_FILE_PATH = os.getenv('KEY_FILE_PATH')
+KEY_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.getenv('KEY_FILE_PATH'))
 DATE_FORMAT = '%Y-%m-%dT%H:%M:%S'
-CRED_PATH = "./token.pickle"
+OUTLOOK_DARE_FORMAT = "%m/%d/%Y %I:%M %p"
+CRED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "token.pickle")
 
 SYNC_TARGET_DAYS = 7
 
@@ -30,7 +31,13 @@ def get_past_cred():
             return pickle.load(token)
     else:
         return None
-    
+
+def append_prefix(outlook_event_subject):
+    if "work" in outlook_event_subject or "備忘録" in outlook_event_subject:
+        return outlook_event_subject
+    else:
+        return "[会議]"+outlook_event_subject
+
 def get_google_api_cred():
     creds = get_past_cred()
     if not creds or not creds.valid:
@@ -52,11 +59,11 @@ def get_outlook_calendar_events():
     mapi = outlook.GetNamespace("MAPI")
     calendar = mapi.GetDefaultFolder(9)  # 9はカレンダーを指す
     start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    end = start + timedelta(days= SYNC_TARGET_DAYS*24)
+    end = start + timedelta(days=SYNC_TARGET_DAYS)
     outlook_events = calendar.Items
     outlook_events.IncludeRecurrences = True
     outlook_events.Sort("[Start]")
-    outlook_events = outlook_items.Restrict("[Start] >= '" + start.strftime(DATE_FORMAT) + "' AND [END] <= '" + end.strftime(DATE_FORMAT) + "'")
+    outlook_events = outlook_events.Restrict("[Start] >= '" + start.strftime(OUTLOOK_DARE_FORMAT) + "' AND [END] <= '" + end.strftime(OUTLOOK_DARE_FORMAT) + "'")
     return outlook_events
 
 def convert_event_outloook_to_google(events):
@@ -64,8 +71,11 @@ def convert_event_outloook_to_google(events):
     ## descriptionにはoutlookeventのIDを入れる
     google_events = []
     for event in events:
+        if "キャンセル済" in event.Subject or "Canceled" in event.Subject:
+            # スキップ
+            continue
         google_event = {
-            'summary': event.Subject,
+            'summary': append_prefix(event.Subject),
             'description': event.EntryID,
             'start': {
                 'dateTime': event.Start.strftime(DATE_FORMAT),
@@ -75,9 +85,16 @@ def convert_event_outloook_to_google(events):
                 'dateTime': event.End.strftime(DATE_FORMAT),
                 'timeZone': 'Asia/Tokyo',
             },
+            "reminders": {
+                "useDefault": False,
+                "overrides": [
+                    {"method": "popup", "minutes": 5}
+                ]
+            }
         }
         google_events.append(google_event)
 
+    return google_events
 def write_to_google_calendar(target_events):
 
     creds = get_google_api_cred()
@@ -108,7 +125,7 @@ def write_to_google_calendar(target_events):
                 is_hit_same_description = True
                 break
         if not is_hit_same_description:
-            insert_events.append(e)
+            insert_events.append(te)
         
     # イベントを更新
     for e in updated_events:
@@ -124,16 +141,16 @@ def write_to_google_calendar(target_events):
         service.events() \
             .insert(
                 calendarId=CALENDAR_ID,
-                body=event
+                body=e
             ) \
             .execute()
 
 if __name__ == "__main__":
     try:
-        creds = get_google_api_cred()
-        # outlook_events = get_outlook_calendar_events()
-        # google_events = convert_event_outloook_to_google(outlook_events)
-        # write_to_google_calendar(google_events)
+        # creds = get_google_api_cred()
+        outlook_events = get_outlook_calendar_events()
+        google_events = convert_event_outloook_to_google(outlook_events)
+        write_to_google_calendar(google_events)
     except Exception as e:
         print("Error occurred.")
         print(e)
